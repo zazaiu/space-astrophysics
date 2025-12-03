@@ -1,0 +1,199 @@
+/* src/pages/PlanetDetail.css */
+
+.planet-detail-container {
+  margin: 0;
+  font-family: 'Space Grotesk', sans-serif;
+  background-color: #0b0b0f;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.planet-detail-card {
+  background-color: #1e1e1e;
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  box-shadow: 0 10px 20px rgba(0,0,0,.5);
+  max-width: 800px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.planet-detail-image {
+  width: 150px;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 50%;
+  margin-bottom: 24px;
+  border: 3px solid #311B77;
+}
+
+.planet-detail-title {
+  font-size: 2.5rem;
+  margin: 10px 0;
+  color: #fff;
+}
+
+.planet-detail-description {
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 24px;
+  color: #cccccc;
+}
+
+.planet-detail-info {
+  background-color: #2a2a2a;
+  padding: 24px;
+  border-radius: 8px;
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #333;
+}
+
+.info-item:last-child {
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #fff;
+}
+
+.info-value {
+  font-weight: 500;
+  color: #8a2be2;
+}
+
+.planet-detail-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.back-btn {
+  padding: 14px 28px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 2px solid #311B77;
+  background-color: transparent;
+  color: #fff;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  min-width: 200px;
+  text-align: center;
+  display: inline-block;
+}
+
+.back-btn:hover {
+  background-color: #311B77;
+  transform: translateY(-2px);
+}
+
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 1.2rem;
+  color: #fff;
+  background-color: #0b0b0f;
+  min-height: 50vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 📱 Мобильные: 320px-768px */
+@media (max-width: 768px) {
+  .planet-detail-container {
+    padding: 10px;
+  }
+  
+  .planet-detail-card {
+    padding: 20px 15px;
+    margin: 10px 0;
+  }
+  
+  .planet-detail-image {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 20px;
+  }
+  
+  .planet-detail-title {
+    font-size: 2rem;
+    margin: 5px 0 15px 0;
+  }
+  
+  .planet-detail-description {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+  
+  .planet-detail-info {
+    padding: 20px 15px;
+    margin-bottom: 25px;
+  }
+  
+  .info-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    margin-bottom: 15px;
+  }
+  
+  .info-label, .info-value {
+    width: 100%;
+  }
+  
+  .planet-detail-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .back-btn {
+    min-width: 100%;
+    max-width: 300px;
+    padding: 12px 24px;
+  }
+}
+
+/* 📟 Планшеты: 769px-1024px */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .planet-detail-container {
+    padding: 30px 20px;
+  }
+  
+  .planet-detail-card {
+    padding: 40px 30px;
+  }
+}
+
+/* 💻 Десктоп: 1025px+ */
+@media (min-width: 1025px) {
+  .planet-detail-container {
+    padding: 40px 20px;
+  }
+  
+  .planet-detail-card {
+    padding: 50px 40px;
+  }
+}
