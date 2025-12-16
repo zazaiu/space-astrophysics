@@ -16,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
@@ -71,39 +70,6 @@ func (h *Handler) RegisterUser(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusCreated, u)
-}
-
-func (h *Handler) gin(ctx *gin.Context) {
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	user, err := h.Repo.Authenticate(req.Username, req.Password)
-	if err != nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Неверные данные"})
-		return
-	}
-
-	// Генерация JWT
-	tokenString, err := utils.GenerateJWT(user.ID, user.Role)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при создании токена"})
-		return
-	}
-
-	// Сохраняем сессию в Redis на 2 часа
-	_ = utils.SetSession(tokenString, user.ID, user.Role, 2*time.Hour)
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "Успешный вход",
-		"token":   tokenString,
-		"role":    user.Role,
-	})
 }
 
 // @Summary		Профиль пользователя
@@ -196,7 +162,7 @@ func (h *Handler) CreatePlanet(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, p)
 }
 
-// @Summary		Обновление планеты
+// @Summary		Обновление планета
 // @Description	Обновляет данные планеты по ID (только модератор)
 // @Tags			planets
 // @Accept			json
@@ -244,29 +210,7 @@ func (h *Handler) DeletePlanet(ctx *gin.Context) {
 // 🌍 WORLDS (заявки)
 // =========================================================
 
-func (h *Handler) FormWorld(ctx *gin.Context) {
-	id, _ := strconv.Atoi(ctx.Param("id"))
-	if err := h.Repo.FormWorld(id); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"message": "Заявка оформлена"})
-}
-
-// GET /api/worlds/:id
-//
-//	@Summary		Просмотр заявки
-//	@Description	Получить подробную информацию о заявке по ID
-//	@Tags			Worlds
-//	@Accept			json
-//	@Produce		json
-//	@Param			id	path		int	true	"ID заявки"
-//	@Success		200	{object}	models.World
-//	@Failure		401	{object}	map[string]string	"Не авторизован"
-//	@Failure		403	{object}	map[string]string	"Недостаточно прав"
-//	@Failure		404	{object}	map[string]string	"Заявка не найдена"
-//	@Security		BearerAuth
-//	@Router			/api/worlds/{id} [get]
+// GET /api/worlds/:id - Просмотр заявки
 func (h *Handler) ViewWorld(ctx *gin.Context) {
 	id, _ := strconv.Atoi(ctx.Param("id"))
 	world, err := h.Repo.GetWorldByID(id)
@@ -274,55 +218,112 @@ func (h *Handler) ViewWorld(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
 		return
 	}
+
+	// Проверка прав доступа
+	userID := ctx.GetInt("user_id")
+	role := ctx.GetString("role")
+
+	// Модератор видит все, пользователь - только свои заявки
+	if role != "mission_control" && world.CreatorID != userID {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав"})
+		return
+	}
+
 	ctx.JSON(http.StatusOK, world)
 }
 
-// PUT /api/worlds/:id
-//
-//	@Summary		Редактирование заявки
-//	@Description	Обновить поля заявки (кроме ID, creator_id и статуса)
-//	@Tags			Worlds
-//	@Accept			json
-//	@Produce		json
-//	@Param			id		path		int						true	"ID заявки"
-//	@Param			body	body		map[string]interface{}	true	"Поля для обновления"
-//	@Success		200		{object}	map[string]string		"Заявка обновлена"
-//	@Failure		400		{object}	map[string]string		"Некорректные данные"
-//	@Failure		401		{object}	map[string]string		"Не авторизован"
-//	@Failure		403		{object}	map[string]string		"Недостаточно прав"
-//	@Failure		500		{object}	map[string]string		"Ошибка сервера"
-//	@Security		BearerAuth
-//	@Router			/api/worlds/{id} [put]
+// PUT /api/worlds/:id - Обновление заявки
 func (h *Handler) UpdateWorld(ctx *gin.Context) {
 	id, _ := strconv.Atoi(ctx.Param("id"))
+
+	// Проверяем, существует ли заявка
+	world, err := h.Repo.GetWorldByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Проверка прав доступа
+	userID := ctx.GetInt("user_id")
+	role := ctx.GetString("role")
+
+	if role != "mission_control" && world.CreatorID != userID {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав"})
+		return
+	}
+
+	// Проверяем, можно ли редактировать (только черновики)
+	if world.WorldStatus != "draft" && role != "mission_control" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Только черновики можно редактировать"})
+		return
+	}
+
 	var update map[string]interface{}
 	if err := ctx.ShouldBindJSON(&update); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Запрещаем обновление некоторых полей
 	delete(update, "id")
 	delete(update, "creator_id")
-	delete(update, "world_status")
+	delete(update, "created_at")
+
+	// Пользователи не могут менять статус, кроме модераторов
+	if role != "mission_control" {
+		delete(update, "world_status")
+		delete(update, "total_distance")
+		delete(update, "average_angle")
+		delete(update, "completed_at")
+	}
+
 	if err := h.Repo.UpdateWorldFields(id, update); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	ctx.JSON(http.StatusOK, gin.H{"message": "Заявка обновлена"})
 }
 
-// @Summary		Список заявок
-// @Description	Получить список всех заявок. Для создателя — только свои, для модератора — все.
-// @Tags			Worlds
-// @Accept			json
-// @Produce		json
-// @Param			status	query		string	false	"Статус заявки (draft, formed, completed)"
-// @Param			from	query		string	false	"Дата начала фильтра YYYY-MM-DD"
-// @Param			to		query		string	false	"Дата конца фильтра YYYY-MM-DD"
-// @Success		200		{array}		models.World
-// @Failure		401		{object}	map[string]string	"Не авторизован"
-// @Failure		403		{object}	map[string]string	"Недостаточно прав"
-// @Security		BearerAuth
-// @Router			/api/worlds [get]
+// PUT /api/worlds/:id/form - Оформление заявки
+func (h *Handler) FormWorld(ctx *gin.Context) {
+	id, _ := strconv.Atoi(ctx.Param("id"))
+
+	// Проверяем, существует ли заявка
+	world, err := h.Repo.GetWorldByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Проверка прав доступа
+	userID := ctx.GetInt("user_id")
+	if world.CreatorID != userID {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав"})
+		return
+	}
+
+	// Проверяем, можно ли оформить (только черновики)
+	if world.WorldStatus != "draft" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Можно оформлять только черновики"})
+		return
+	}
+
+	// Проверяем, есть ли планеты в заявке
+	if len(world.Planets) == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Добавьте планеты в заявку"})
+		return
+	}
+
+	if err := h.Repo.FormWorld(id); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Заявка оформлена"})
+}
+
+// ListWorldsFiltered - получение списка заявок с фильтрами
 func (h *Handler) ListWorldsFiltered(ctx *gin.Context) {
 	role := ctx.GetString("role")
 	userID := ctx.GetInt("user_id")
@@ -347,22 +348,26 @@ func (h *Handler) ListWorldsFiltered(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, worlds)
 }
 
-// DELETE /api/worlds/:id
-//
-//	@Summary		Удаление заявки
-//	@Description	Устанавливает статус заявки 'deleted'
-//	@Tags			Worlds
-//	@Accept			json
-//	@Produce		json
-//	@Param			id	path		int					true	"ID заявки"
-//	@Success		200	{object}	map[string]string	"Заявка удалена"
-//	@Failure		401	{object}	map[string]string	"Не авторизован"
-//	@Failure		403	{object}	map[string]string	"Недостаточно прав"
-//	@Failure		500	{object}	map[string]string	"Ошибка сервера"
-//	@Security		BearerAuth
-//	@Router			/api/worlds/{id} [delete]
+// DeleteWorld - удаление заявки
 func (h *Handler) DeleteWorld(ctx *gin.Context) {
 	id, _ := strconv.Atoi(ctx.Param("id"))
+
+	// Проверяем, существует ли заявка
+	world, err := h.Repo.GetWorldByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Проверяем права (только создатель или модератор может удалить)
+	userID := ctx.GetInt("user_id")
+	role := ctx.GetString("role")
+
+	if world.CreatorID != userID && role != "mission_control" {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав для удаления"})
+		return
+	}
+
 	if err := h.Repo.DeleteWorldSQL(id); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -370,60 +375,113 @@ func (h *Handler) DeleteWorld(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"message": "Заявка удалена"})
 }
 
-// @Summary		Завершение заявки
-// @Description	Завершает заявку, устанавливает total_cost и completed_at (только для mission_control)
-// @Tags			Worlds
-// @Accept			json
-// @Produce		json
-// @Param			id	path		int					true	"ID заявки"
-// @Success		200	{object}	map[string]string	"Заявка завершена"
-// @Failure		401	{object}	map[string]string	"Не авторизован"
-// @Failure		403	{object}	map[string]string	"Недостаточно прав"
-// @Failure		400	{object}	map[string]string	"Ошибка при завершении"
-// @Security		BearerAuth
-// @Router			/api/worlds/{id}/complete [put]
+// CreateWorld - создание новой заявки
+func (h *Handler) CreateWorld(ctx *gin.Context) {
+	var input struct {
+		Theme       string `json:"theme"`
+		Description string `json:"description"`
+	}
+
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный JSON: " + err.Error()})
+		return
+	}
+
+	userID := ctx.GetInt("user_id")
+	if userID == 0 {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Не авторизован"})
+		return
+	}
+
+	// Создаем новую заявку
+	world := models.World{
+		CreatorID:   userID,
+		Theme:       input.Theme,
+		Description: input.Description,
+		WorldStatus: "draft",
+		CreatedAt:   time.Now(),
+	}
+
+	if err := h.Repo.CreateWorld(&world); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания заявки: " + err.Error()})
+		return
+	}
+
+	// Получаем созданную заявку
+	createdWorld, err := h.Repo.GetWorldByID(world.ID)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения созданной заявки"})
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, createdWorld)
+}
+
+// CompleteWorld - завершение заявки
 func (h *Handler) CompleteWorld(ctx *gin.Context) {
 	role := ctx.GetString("role")
 	if role != "mission_control" {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещён"})
 		return
 	}
+
 	id, _ := strconv.Atoi(ctx.Param("id"))
-	if err := h.Repo.CompleteWorld(id, 2); err != nil {
+
+	// Получаем заявку для расчета
+	world, err := h.Repo.GetWorldByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Рассчитываем суммарное расстояние и средний угол из данных WorldPlanet
+	totalDistance := 0.0
+	totalAngle := 0.0
+	planetCount := len(world.Planets)
+
+	for _, wp := range world.Planets {
+		// Используем поля Distance и Angle из WorldPlanet
+		totalDistance += wp.Distance
+		totalAngle += wp.Angle
+	}
+
+	averageAngle := 0.0
+	if planetCount > 0 {
+		averageAngle = totalAngle / float64(planetCount)
+	}
+
+	// Вызываем репозиторий с обновленными параметрами
+	if err := h.Repo.CompleteWorld(id, totalDistance, averageAngle); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"message": "Заявка завершена"})
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message":        "Заявка завершена",
+		"total_distance": totalDistance,
+		"average_angle":  averageAngle,
+		"planet_count":   planetCount,
+	})
 }
 
 // =========================================================
 // ⚙️ M-M связи (WorldPlanet)
 // =========================================================
 
-// DELETE /api/worlds/:world_id/planet/:planet_id
-/*func (h *Handler) DeleteWorldPlanet(ctx *gin.Context) {
-	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
-	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
-	if err := h.Repo.DeleteWorldPlanet(worldID, planetID); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"message": "Планета удалена из заявки"})
-}*/
-
 // PUT /api/worlds/:world_id/planet/:planet_id
 func (h *Handler) UpdateWorldPlanet(ctx *gin.Context) {
 	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
 	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
 	var payload struct {
-		Quantity int  `json:"quantity"`
-		IsMain   bool `json:"is_main"`
+		Angle    float64 `json:"angle"`
+		Distance float64 `json:"distance"`
+		Comment  string  `json:"comment"`
 	}
 	if err := ctx.ShouldBindJSON(&payload); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный JSON"})
 		return
 	}
-	if err := h.Repo.UpdateWorldPlanet(worldID, planetID, payload.Quantity, payload.IsMain); err != nil {
+	if err := h.Repo.UpdateWorldPlanetFields(worldID, planetID, payload.Angle, payload.Distance, payload.Comment); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -431,21 +489,6 @@ func (h *Handler) UpdateWorldPlanet(ctx *gin.Context) {
 }
 
 // DELETE /api/worlds/:world_id/planet/:planet_id
-//
-//	@Summary		Удаление планеты из заявки
-//	@Description	Удаляет связь мир–планета
-//	@Tags			Worlds
-//	@Accept			json
-//	@Produce		json
-//	@Param			id			path		int					true	"ID заявки"
-//	@Param			planet_id	path		int					true	"ID планеты"
-//	@Success		200			{object}	map[string]string	"Планета удалена из заявки"
-//	@Failure		400			{object}	map[string]string	"Некорректные данные"
-//	@Failure		401			{object}	map[string]string	"Не авторизован"
-//	@Failure		403			{object}	map[string]string	"Недостаточно прав"
-//	@Failure		500			{object}	map[string]string	"Ошибка сервера"
-//	@Security		BearerAuth
-//	@Router			/api/worlds/{id}/planet/{planet_id} [delete]
 func (h *Handler) DeleteWorldPlanet(ctx *gin.Context) {
 	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
 	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
@@ -563,48 +606,85 @@ func (h *Handler) GetCartIcon(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"cart_count": count})
 }
 
-// @Summary		Добавление планеты в заявку
-// @Description	Добавляет планету в заявку (черновую или существующую)
-// @Tags			Worlds
-// @Accept			json
-// @Produce		json
-// @Param			id			path		int														true	"ID заявки"
-// @Param			planet_id	path		int														true	"ID планеты"
-// @Param			body		body		struct{Angle float64; Distance float64; Comment string}	true	"Данные планеты"
-// @Success		200			{object}	map[string]interface{}									"Планета добавлена в заявку"
-// @Failure		400			{object}	map[string]string										"Некорректные данные"
-// @Failure		401			{object}	map[string]string										"Не авторизован"
-// @Failure		403			{object}	map[string]string										"Недостаточно прав"
-// @Security		BearerAuth
-// @Router			/api/worlds/{id}/planet/{planet_id} [post]
+// @Summary        Добавление планеты в заявку
+// @Description    Добавляет планету в заявку (черновую или существующую)
+// @Tags           Worlds
+// @Accept         json
+// @Produce        json
+// @Param          id          path    int                                                     true    "ID заявки"
+// @Param          planet_id   path    int                                                     true    "ID планеты"
+// @Param          body        body    struct{Angle float64; Distance float64; Comment string} true    "Данные планеты"
+// @Success        200         {object} map[string]interface{}                                 "Планета добавлена в заявку"
+// @Failure        400         {object} map[string]string                                      "Некорректные данные"
+// @Failure        401         {object} map[string]string                                      "Не авторизован"
+// @Failure        403         {object} map[string]string                                      "Недостаточно прав"
+// @Security       BearerAuth
+// @Router         /api/worlds/{id}/planet/{planet_id} [post]
 func (h *Handler) AddPlanetToWorld(ctx *gin.Context) {
+	// Получаем ID заявки и планеты из параметров пути
+	worldID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	planetID, err := strconv.Atoi(ctx.Param("planet_id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID планеты"})
+		return
+	}
+
 	userID := ctx.GetInt("user_id")
-	planetID, _ := strconv.Atoi(ctx.Param("id"))
+	role := ctx.GetString("role")
 
 	var req struct {
 		Angle    float64 `json:"angle"`
 		Distance float64 `json:"distance"`
 		Comment  string  `json:"comment"`
 	}
+
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный JSON"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный JSON: " + err.Error()})
 		return
 	}
 
-	world, err := h.Repo.GetOrCreateDraftWorld(userID)
+	// Проверяем, существует ли заявка и принадлежит ли пользователю
+	world, err := h.Repo.GetWorldByID(worldID)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
 		return
 	}
 
-	if err := h.Repo.AddPlanetToWorld(world.ID, planetID, req.Angle, req.Distance, req.Comment); err != nil {
+	// Проверяем права доступа
+	if world.CreatorID != userID && role != "mission_control" {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав"})
+		return
+	}
+
+	// Проверяем статус заявки - можно добавлять только в черновики
+	if world.WorldStatus != "draft" && role != "mission_control" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Планеты можно добавлять только в черновики"})
+		return
+	}
+
+	// Проверяем, существует ли планета
+	planet, err := h.Repo.GetPlanetByID(planetID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Планета не найдена"})
+		return
+	}
+
+	// Добавляем планету в заявку
+	if err := h.Repo.AddPlanetToWorld(worldID, planetID, req.Angle, req.Distance, req.Comment); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"message":  "Планета добавлена в заявку",
-		"world_id": world.ID,
+		"message":     "Планета добавлена в заявку",
+		"world_id":    worldID,
+		"planet_id":   planetID,
+		"planet_name": planet.Name,
 	})
 }
 
@@ -656,69 +736,50 @@ func (h *Handler) GetWorldPlanet(ctx *gin.Context) {
 }
 
 // =========================================================
-// 🚀 Утилиты расчёта орбит
+// 🚀 Утилиты расчёта орбит (расчет положения планет)
 // =========================================================
 
-func julianDate(t time.Time) float64 {
-	year, month, day := t.Date()
-	if month <= 2 {
-		year--
-		month += 12
-	}
-	A := year / 100
-	B := 2 - A + A/4
-	return float64(int(365.25*float64(year+4716))) +
-		float64(int(30.6001*float64(month+1))) +
-		float64(day) + float64(B) - 1524.5
-}
+// calculatePlanetPosition рассчитывает расстояние от Солнца и угол для планеты на указанную дату
+func calculatePlanetPosition(planet models.Planet, date time.Time) (distance, angle float64) {
+	// Для простоты используем симуляцию орбитальных параметров
+	// В реальном приложении здесь будут сложные астрономические расчеты
 
-func solveKepler(M, e float64) float64 {
-	E := M
-	for i := 0; i < 15; i++ {
-		E = E - (E-e*math.Sin(E)-M)/(1-e*math.Cos(E))
+	// Базовые расстояния планет от Солнца в астрономических единицах (AU)
+	baseDistances := map[string]float64{
+		"Меркурий": 0.39,
+		"Венера":   0.72,
+		"Земля":    1.0,
+		"Марс":     1.52,
+		"Юпитер":   5.20,
+		"Сатурн":   9.58,
+		"Уран":     19.22,
+		"Нептун":   30.05,
 	}
-	return E
+
+	// Базовый угол (от 0 до 360 градусов)
+	baseAngle := 45.0 // упрощенный угол
+
+	// Получаем базовое расстояние для планеты
+	baseDistance, ok := baseDistances[planet.Name]
+	if !ok {
+		baseDistance = 1.0 // по умолчанию
+	}
+
+	// Добавляем вариацию в зависимости от даты для симуляции движения
+	daysSinceEpoch := float64(date.Unix() / (24 * 3600))
+
+	// Простая симуляция: расстояние немного меняется со временем
+	distance = baseDistance + 0.1*math.Sin(daysSinceEpoch/365.25*2*math.Pi)
+
+	// Угол зависит от времени (симуляция орбитального движения)
+	angle = math.Mod(baseAngle+daysSinceEpoch*0.9856, 360) // ~1 градус в день
+
+	return distance, angle
 }
 
 // =========================================================
 // 🧠 ADMIN / REDIS
 // =========================================================
-
-// RedisLuaSessions возвращает список всех активных сессий пользователей через Lua-скрипт
-func RedisLuaSessions() ([]map[string]string, error) {
-	if utils.RedisClient == nil {
-		return nil, fmt.Errorf("Redis не инициализирован")
-	}
-
-	ctx := context.Background()
-
-	// Lua-скрипт: пройти по всем ключам Redis и собрать user_id и role
-	script := redis.NewScript(`
-		local result = {}
-		local keys = redis.call('keys', '*')
-		for i, key in ipairs(keys) do
-			local user_id = redis.call('hget', key, 'user_id')
-			local role = redis.call('hget', key, 'role')
-			if user_id and role then
-				table.insert(result, key .. ' => user_id:' .. user_id .. ', role:' .. role)
-			end
-		end
-		return result
-	`)
-
-	res, err := script.Run(ctx, utils.RedisClient, []string{}).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	list := []map[string]string{}
-	if arr, ok := res.([]interface{}); ok {
-		for _, v := range arr {
-			list = append(list, map[string]string{"session": fmt.Sprint(v)})
-		}
-	}
-	return list, nil
-}
 
 // GetSessionsViaLua получает все ключи сессий из Redis через Lua
 func GetSessionsViaLua() ([]map[string]string, error) {
@@ -760,15 +821,6 @@ func GetSessionsViaLua() ([]map[string]string, error) {
 }
 
 // ListSessions показывает активные сессии пользователей через Redis Lua
-//
-//	@Summary		Получить список активных сессий
-//	@Description	Возвращает список пользователей, чьи сессии хранятся в Redis
-//	@Tags			users
-//	@Produce		json
-//	@Success		200	{array}		models.Session
-//	@Failure		500	{object}	map[string]string	"Ошибка сервера"
-//	@Router			/api/users/sessions [get]
-//	@Security		BearerAuth
 func (h *Handler) ListSessions(ctx *gin.Context) {
 	sessions, err := GetSessionsViaLua()
 	if err != nil {
@@ -778,14 +830,7 @@ func (h *Handler) ListSessions(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"sessions": sessions})
 }
 
-// @Summary		Показать все активные сессии
-// @Description	Возвращает список всех активных сессий из Redis через Lua-скрипт
-// @Tags			admin
-// @Produce		json
-// @Success		200	{object}	map[string]interface{}
-// @Failure		500	{object}	map[string]string
-// @Router			/api/admin/sessions [get]
-// @Security		BearerAuth
+// ShowAllSessions показывает все активные сессии (только для модераторов)
 func (h *Handler) ShowAllSessions(ctx *gin.Context) {
 	// Проверяем права - только для модераторов
 	role := ctx.GetString("role")
@@ -926,4 +971,135 @@ func (h *Handler) GetCart(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, response)
+}
+
+// GetOrCreateDraftWorld - получаем или создаем черновик (для внутреннего использования)
+func (h *Handler) GetOrCreateDraftWorld(ctx *gin.Context) {
+	userID := ctx.GetInt("user_id")
+	if userID == 0 {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Не авторизован"})
+		return
+	}
+
+	world, err := h.Repo.GetOrCreateDraftWorld(userID)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, world)
+}
+
+// CalculatePlanetPosition - расчет позиции планеты
+func CalculatePlanetPosition(planetName string, calculationDate time.Time) (distance, angle float64) {
+	// Базовые расстояния планет от Солнца в астрономических единицах (AU)
+	baseDistances := map[string]float64{
+		"Меркурий": 0.39,
+		"Венера":   0.72,
+		"Земля":    1.0,
+		"Марс":     1.52,
+		"Юпитер":   5.20,
+		"Сатурн":   9.58,
+		"Уран":     19.22,
+		"Нептун":   30.05,
+	}
+
+	// Базовый угол (от 0 до 360 градусов)
+	baseAngle := 45.0
+
+	// Получаем базовое расстояние для планеты
+	baseDistance, ok := baseDistances[planetName]
+	if !ok {
+		baseDistance = 1.0 // по умолчанию
+	}
+
+	// Добавляем вариацию в зависимости от даты для симуляции движения
+	daysSinceEpoch := float64(calculationDate.Unix() / (24 * 3600))
+
+	// Простая симуляция: расстояние немного меняется со временем
+	distance = baseDistance + 0.1*math.Sin(daysSinceEpoch/365.25*2*math.Pi)
+
+	// Угол зависит от времени (симуляция орбитального движения)
+	angle = math.Mod(baseAngle+daysSinceEpoch*0.9856, 360) // ~1 градус в день
+
+	return distance, angle
+}
+
+// CalculateOrbitalData - расчет орбитальных данных для планет в заявке
+// @Summary        Расчет орбитальных данных
+// @Description    Рассчитывает расстояние и угол для всех планет в заявке на указанную дату
+// @Tags           Worlds
+// @Accept         json
+// @Produce        json
+// @Param          id      path    int     true    "ID заявки"
+// @Param          date    query   string  true    "Дата расчета в формате YYYY-MM-DD"
+// @Success        200     {object}    map[string]interface{}
+// @Router         /api/worlds/{id}/calculate [post]
+// @Security       BearerAuth
+func (h *Handler) CalculateOrbitalData(ctx *gin.Context) {
+	worldID, _ := strconv.Atoi(ctx.Param("id"))
+	dateStr := ctx.Query("date")
+
+	// Парсим дату
+	calculationDate := time.Now()
+	if dateStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", dateStr); err == nil {
+			calculationDate = parsedDate
+		}
+	}
+
+	// Получаем заявку
+	world, err := h.Repo.GetWorldByID(worldID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Рассчитываем данные для каждой планеты
+	results := []map[string]interface{}{}
+	totalDistance := 0.0
+	totalAngle := 0.0
+
+	for _, wp := range world.Planets {
+		// Используем данные из планеты
+		distance, angle := CalculatePlanetPosition(wp.Planet.Name, calculationDate)
+
+		// Обновляем данные в WorldPlanet (M-M связи)
+		if err := h.Repo.UpdateWorldPlanetFields(worldID, wp.PlanetID, angle, distance, "Рассчитано автоматически"); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		results = append(results, map[string]interface{}{
+			"planet_id":        wp.PlanetID,
+			"planet_name":      wp.Planet.Name,
+			"distance_au":      distance,
+			"angle_degrees":    angle,
+			"calculation_date": calculationDate.Format("2006-01-02"),
+		})
+
+		totalDistance += distance
+		totalAngle += angle
+	}
+
+	averageAngle := 0.0
+	if len(results) > 0 {
+		averageAngle = totalAngle / float64(len(results))
+	}
+
+	// Обновляем общие данные заявки
+	if err := h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+		"total_cost": totalDistance, // Используем total_cost для хранения общего расстояния
+	}); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message":          "Орбитальные данные рассчитаны",
+		"calculation_date": calculationDate.Format("2006-01-02"),
+		"total_distance":   totalDistance,
+		"average_angle":    averageAngle,
+		"planets":          results,
+	})
 }

@@ -176,12 +176,16 @@ func StartServer() {
 		// Заявки
 		auth.GET("/worlds", h.ListWorldsFiltered)
 		auth.GET("/worlds/:id", h.ViewWorld)
+		auth.POST("/worlds", h.CreateWorld)
 		auth.PUT("/worlds/:id", h.UpdateWorld)
 		auth.DELETE("/worlds/:id", h.DeleteWorld)
 
 		// Корзина
 		//auth.GET("/cart", h.GetCartIcon)
 		auth.POST("/worlds/:id/planet/:planet_id", h.AddPlanetToWorld)
+
+		// Расчет орбитальных данных (для всех авторизованных)
+		auth.POST("/worlds/:id/calculate", h.CalculateOrbitalData)
 	}
 
 	// === Только для астронавтов ===
@@ -205,7 +209,7 @@ func StartServer() {
 		// Завершение заявок
 		admin.PUT("/worlds/:id/complete", h.CompleteWorld)
 
-		// Работа с связями M-M - ПЕРЕНОСИМ В ОТДЕЛЬНУЮ ГРУППУ
+		// Работа с связями M-M
 		admin.GET("/world-planets/:world_id/:planet_id", h.GetWorldPlanet)
 		admin.DELETE("/world-planets/:world_id/:planet_id", h.DeleteWorldPlanet)
 		admin.PUT("/world-planets/:world_id/:planet_id", h.UpdateWorldPlanet)

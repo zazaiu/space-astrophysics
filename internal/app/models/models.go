@@ -21,17 +21,17 @@ type Planet struct {
 // WORLDS (Заявки)
 // -------------------------
 type World struct {
-	ID             int           `gorm:"primaryKey;column:id"`
-	Theme          string        `gorm:"column:theme"`        // тема заявки
-	Description    string        `gorm:"column:description"`  // описание
-	WorldStatus    string        `gorm:"column:world_status"` // draft, formed, completed, rejected, deleted
-	CreatedAt      time.Time     `gorm:"column:created_at"`
-	CreatorID      int           `gorm:"column:creator_id"`
-	FormationDate  *time.Time    `gorm:"column:formation_date"`  // дата формирования
-	CompletionDate *time.Time    `gorm:"column:completion_date"` // дата завершения
-	ModeratorID    *int          `gorm:"column:moderator_id"`
-	TotalCost      *float64      `gorm:"column:total_cost"` // вычисляется при завершении
-	Planets        []WorldPlanet `gorm:"foreignKey:WorldID;references:ID"`
+	ID             int           `gorm:"primaryKey;column:id" json:"id"`
+	Theme          string        `gorm:"column:theme" json:"theme"`               // тема заявки
+	Description    string        `gorm:"column:description" json:"description"`   // описание
+	WorldStatus    string        `gorm:"column:world_status" json:"world_status"` // draft, formed, completed, rejected, deleted
+	CreatedAt      time.Time     `gorm:"column:created_at" json:"created_at"`
+	CreatorID      int           `gorm:"column:creator_id" json:"creator_id"`
+	FormationDate  *time.Time    `gorm:"column:formation_date" json:"formation_date,omitempty"`   // дата формирования
+	CompletionDate *time.Time    `gorm:"column:completion_date" json:"completion_date,omitempty"` // дата завершения
+	ModeratorID    *int          `gorm:"column:moderator_id" json:"moderator_id,omitempty"`
+	TotalCost      *float64      `gorm:"column:total_cost" json:"total_cost,omitempty"` // вычисляется при завершении
+	Planets        []WorldPlanet `gorm:"foreignKey:WorldID;references:ID" json:"planets,omitempty"`
 }
 
 // -------------------------

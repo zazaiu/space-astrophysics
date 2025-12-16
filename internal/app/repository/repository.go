@@ -138,7 +138,7 @@ func (r *Repository) UploadPlanetImageToMinio(planetID int, file *multipart.File
 
 func (r *Repository) GetDraftWorld(userID int) (*models.World, error) {
 	var world models.World
-	err := r.DB.Preload("Planets.Planet").
+	err := r.DB.Preload("Planets").
 		Where("creator_id = ? AND world_status = ?", userID, "draft").
 		First(&world).Error
 
@@ -153,14 +153,24 @@ func (r *Repository) GetDraftWorld(userID int) (*models.World, error) {
 
 func (r *Repository) GetWorldByID(id int) (models.World, error) {
 	var world models.World
-	if err := r.DB.Preload("Planets.Planet").First(&world, id).Error; err != nil {
+	if err := r.DB.Preload("Planets").First(&world, id).Error; err != nil {
 		return models.World{}, err
 	}
 	return world, nil
 }
 
+// CreateWorld создает новую заявку с использованием RAW SQL для избежания ON CONFLICT
 func (r *Repository) CreateWorld(world *models.World) error {
-	return r.DB.Create(world).Error
+	// Используем raw SQL для вставки, чтобы избежать проблем с ON CONFLICT
+	sql := `INSERT INTO worlds (theme, description, world_status, created_at, creator_id) 
+            VALUES (?, ?, ?, ?, ?) RETURNING id`
+
+	return r.DB.Raw(sql,
+		world.Theme,
+		world.Description,
+		world.WorldStatus,
+		world.CreatedAt,
+		world.CreatorID).Scan(&world.ID).Error
 }
 
 // AddPlanetToWorld добавляет планету в заявку (если ещё нет).
@@ -195,7 +205,7 @@ func (r *Repository) UpdateWorldFields(id int, update map[string]interface{}) er
 }
 
 func (r *Repository) GetWorldsFiltered(status, from, to string) ([]models.World, error) {
-	query := r.DB.Preload("Planets.Planet")
+	query := r.DB.Preload("Planets")
 	if status != "" {
 		query = query.Where("world_status = ?", status)
 	}
@@ -218,12 +228,13 @@ func (r *Repository) FormWorld(id int) error {
 		Update("world_status", "formed").Error
 }
 
-func (r *Repository) CompleteWorld(id int, totalCost float64) error {
+// CompleteWorld завершает заявку с расчетом астрономических параметров
+func (r *Repository) CompleteWorld(id int, totalDistance, averageAngle float64) error {
 	return r.DB.Model(&models.World{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"world_status": "completed",
-			"total_cost":   totalCost,
+			"total_cost":   totalDistance, // Используем существующее поле total_cost для хранения расстояния
 			"completed_at": time.Now(),
 		}).Error
 }
@@ -233,11 +244,6 @@ func (r *Repository) CompleteWorld(id int, totalCost float64) error {
 // WORLD-PLANET связи
 // =====================================================
 //
-
-/*func (r *Repository) DeleteWorldPlanet(worldID, planetID int) error {
-	return r.DB.Where("world_id = ? AND planet_id = ?", worldID, planetID).
-		Delete(&models.WorldPlanet{}).Error
-}*/
 
 func (r *Repository) UpdateWorldPlanet(worldID, planetID, quantity int, isMain bool) error {
 	return r.DB.Model(&models.WorldPlanet{}).
@@ -314,7 +320,7 @@ func (r *Repository) UpdatePlanetImage(planetID int, imagePath string) error {
 		Update("image_url", imagePath).Error
 }
 
-// Получить или создать черновик заявки
+// Получить или создать черновик заявки - также обновляем с RAW SQL
 func (r *Repository) GetOrCreateDraftWorld(userID int) (*models.World, error) {
 	world, err := r.GetDraftWorld(userID)
 	if err != nil {
@@ -328,10 +334,22 @@ func (r *Repository) GetOrCreateDraftWorld(userID int) (*models.World, error) {
 		CreatorID:   userID,
 		WorldStatus: "draft",
 		CreatedAt:   time.Now(),
+		Theme:       "Новая заявка", // Добавляем тему по умолчанию
 	}
-	if err := r.DB.Create(&newWorld).Error; err != nil {
+
+	// Используем RAW SQL для создания
+	sql := `INSERT INTO worlds (theme, description, world_status, created_at, creator_id) 
+            VALUES (?, ?, ?, ?, ?) RETURNING id`
+
+	if err := r.DB.Raw(sql,
+		newWorld.Theme,
+		newWorld.Description,
+		newWorld.WorldStatus,
+		newWorld.CreatedAt,
+		newWorld.CreatorID).Scan(&newWorld.ID).Error; err != nil {
 		return nil, err
 	}
+
 	return &newWorld, nil
 }
 
