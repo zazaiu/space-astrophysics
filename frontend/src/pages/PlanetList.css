@@ -1,0 +1,213 @@
+.planet-list-container {
+  min-height: 100vh;
+  background-color: #0b0b0f;
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
+/* Секция фильтров */
+.filters-section {
+  padding: 30px;
+  background-color: #1a1a1a;
+  border-bottom: 2px solid #311b77;
+}
+
+.search-input-container {
+  margin-bottom: 20px;
+}
+
+.search-input {
+  width: 100%;
+  max-width: 600px;
+  padding: 15px 20px;
+  font-size: 16px;
+  border: 2px solid #311b77;
+  border-radius: 8px;
+  background-color: #2a2a2a;
+  color: #fff;
+  margin: 0 auto;
+  display: block;
+}
+
+.search-input::placeholder {
+  color: #888;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #8a2be2;
+  box-shadow: 0 0 10px rgba(138, 43, 226, 0.3);
+}
+
+/* Кнопки фильтров */
+.filter-buttons {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.apply-filters-btn,
+.reset-filters-btn,
+.toggle-filters-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.apply-filters-btn {
+  background-color: #311B77;
+  color: #fff;
+}
+
+.apply-filters-btn:hover {
+  background-color: #4b28b8;
+  transform: translateY(-2px);
+}
+
+.reset-filters-btn {
+  background-color: transparent;
+  color: #fff;
+  border: 2px solid #311b77;
+}
+
+.reset-filters-btn:hover {
+  background-color: #311b77;
+  transform: translateY(-2px);
+}
+
+.toggle-filters-btn {
+  background-color: transparent;
+  color: #8a2be2;
+  border: 2px solid #8a2be2;
+}
+
+.toggle-filters-btn:hover {
+  background-color: #8a2be2;
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+/* Сетка планет */
+.planets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 25px;
+  padding: 40px;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Карточка планеты */
+.planet-card {
+  background: linear-gradient(145deg, #1e1e1e, #2a2a2a);
+  border-radius: 12px;
+  padding: 25px;
+  text-align: center;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.planet-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.7);
+  border-color: #311b77;
+}
+
+.planet-image {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin: 0 auto 15px;
+  border: 3px solid #311b77;
+}
+
+.planet-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 15px 0;
+  color: #fff;
+}
+
+.planet-distance {
+  font-size: 1rem;
+  margin: 5px 0;
+  color: #cccccc;
+}
+
+.select-planet-btn {
+  display: inline-block;
+  padding: 12px 30px;
+  background-color: #311B77;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-top: auto;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.select-planet-btn:hover {
+  background-color: #4b28b8;
+  transform: translateY(-2px);
+}
+
+/* Состояние загрузки */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 1.2rem;
+  color: #fff;
+  background-color: #0b0b0f;
+  min-height: 50vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .filters-section {
+    padding: 20px 15px;
+  }
+  
+  .planets-grid {
+    grid-template-columns: 1fr;
+    padding: 20px 15px;
+    gap: 20px;
+  }
+  
+  .filter-buttons {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .apply-filters-btn,
+  .reset-filters-btn,
+  .toggle-filters-btn {
+    width: 100%;
+    max-width: 300px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .planets-grid {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  }
+}
