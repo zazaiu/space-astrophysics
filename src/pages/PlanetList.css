@@ -1,12 +1,13 @@
 /* src/pages/PlanetList.css */
 
-/* Переопределяем фиксированные стили из App.css */
+/* Сетка карточек */
 .planets-grid {
   display: grid;
   gap: 25px;
   padding: 20px;
   width: 100%;
   box-sizing: border-box;
+  justify-items: center;
 }
 
 /* 📱 Мобильные: 320px-768px (1 колонка) */
@@ -21,6 +22,7 @@
     margin: 5px 0 !important;
     padding: 15px !important;
     min-width: auto !important;
+    width: 100%;
   }
   
   .planet-name {
@@ -58,7 +60,7 @@
   }
 }
 
-/* Адаптивные карточки планет */
+/* Карточки планет */
 .planet-card {
   background: linear-gradient(145deg, #1e1e1e, #2a2a2a);
   border-radius: 12px;
@@ -69,7 +71,8 @@
   transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  align-items: center;
+  width: 100%;
 }
 
 .planet-card:hover {
@@ -78,11 +81,11 @@
   border-color: #311b77;
 }
 
-/* Адаптивные изображения */
+/* Изображения планет */
 .planet-image {
-  width: 100%;
-  max-width: 120px;
-  height: 120px;
+  width: 100%;           /* под ширину карточки */
+  max-width: 200px;      /* ограничение для больших экранов */
+  height: auto;          /* сохраняем пропорции */
   border-radius: 50%;
   object-fit: cover;
   margin: 0 auto 15px;
@@ -91,12 +94,12 @@
 
 @media (max-width: 768px) {
   .planet-image {
-    max-width: 100px !important;
-    height: 100px !important;
+    max-width: 150px !important; /* больше для мобильных */
+    height: auto !important;
   }
 }
 
-/* Текстовые элементы */
+/* Название планеты */
 .planet-name {
   font-size: 1.5rem;
   font-weight: 700;
@@ -104,6 +107,7 @@
   color: #fff;
 }
 
+/* Описание */
 .planet-description {
   font-size: 1rem;
   line-height: 1.6;
@@ -112,6 +116,7 @@
   flex-grow: 1;
 }
 
+/* Орбитальные параметры */
 .perihelion, .aphelion {
   font-size: 0.9rem;
   margin: 5px 0;

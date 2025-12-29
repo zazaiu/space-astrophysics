@@ -1,13 +1,10 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-const isProduction = process.env.NODE_ENV === 'production';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/space-astrophysics/',
-  
-  // Настройки сборки
+  // GitHub Pages: указываем базовый путь
+  base: '/space-astrophysics/', 
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -19,23 +16,8 @@ export default defineConfig({
       }
     }
   },
-  
-server: {
-  port: 5173,
-  strictPort: true,
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8080', // Ваш Go бэкенд
-      changeOrigin: true,
-      secure: false,
-      // rewrite: (path) => path.replace(/^\/api/, '') // Уберите если бэкенд ожидает /api
-    },
-    '/images': {
-      target: 'http://localhost:9000',
-      changeOrigin: true,
-      secure: false,
-      rewrite: (path) => path.replace(/^\/images/, '/space-images')
-    }
+  server: {
+    port: 5173,
+    strictPort: true
   }
-}
-})
+});
