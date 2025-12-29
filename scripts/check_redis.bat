@@ -1,5 +1,5 @@
 @echo off
-echo 🔍 CHECKING REDIS SESSIONS
+echo  CHECKING REDIS SESSIONS
 echo ==========================
 
 echo.

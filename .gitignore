@@ -1,1 +1,15 @@
-node_modules/
+# Игнорировать всё
+*
+
+# Разрешить сам .gitignore
+!.gitignore
+
+# Разрешить папки Go backend
+!cmd/
+!cmd/**
+
+!internal/
+!internal/**
+
+# Разрешить docker-compose
+!docker-compose.yml

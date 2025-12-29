@@ -147,7 +147,6 @@ func StartServer() {
 	// -------------------------------
 	// Swagger UI
 	// -------------------------------
-	//docs.SwaggerInfo.BasePath = "/api"
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// -------------------------------
@@ -162,37 +161,39 @@ func StartServer() {
 		api.GET("/planets", h.ListPlanets)
 		api.GET("/planets/:id", h.ShowPlanetDetail)
 		api.GET("/cart", h.GetCart)
+		// Callback от Django - используем другой путь чтобы не конфликтовать
+		api.POST("/async-callback/:world_id", h.CompleteWorldCallback)
+
+		// Media - публичный доступ для просмотра (используем /media/planet/:id вместо /planets/:id/media)
+		api.GET("/media/planet/:id", h.GetPlanetMedia)
+		api.GET("/media/:id", h.GetMediaByID)
 	}
 
 	// === Авторизованные пользователи (любая роль) ===
 	auth := api.Group("/")
-	auth.Use(h.AuthMiddleware()) // Без указания ролей - проверяет только аутентификацию
+	auth.Use(h.AuthMiddleware())
 	{
 		// Личный кабинет
 		auth.GET("/users/profile", h.GetUserProfile)
 		auth.PUT("/users/profile", h.UpdateUserProfile)
 		auth.POST("/users/logout", h.Logout)
 
-		// Заявки
+		// Заявки - ВСЕ используем :id
 		auth.GET("/worlds", h.ListWorldsFiltered)
 		auth.GET("/worlds/:id", h.ViewWorld)
 		auth.POST("/worlds", h.CreateWorld)
 		auth.PUT("/worlds/:id", h.UpdateWorld)
 		auth.DELETE("/worlds/:id", h.DeleteWorld)
-
-		// Корзина
-		//auth.GET("/cart", h.GetCartIcon)
-		auth.POST("/worlds/:id/planet/:planet_id", h.AddPlanetToWorld)
-
-		// Расчет орбитальных данных (для всех авторизованных)
+		auth.GET("/worlds/:id/calculation-status", h.GetCalculationStatus)
 		auth.POST("/worlds/:id/calculate", h.CalculateOrbitalData)
+		// ИЗМЕНЕНИЕ: используем :id вместо :world_id
+		auth.POST("/worlds/:id/planet/:planet_id", h.AddPlanetToWorld)
 	}
 
 	// === Только для астронавтов ===
 	astronaut := api.Group("/")
 	astronaut.Use(h.AuthMiddleware("astronaut"))
 	{
-		// Оформление заявки
 		astronaut.PUT("/worlds/:id/form", h.FormWorld)
 	}
 
@@ -200,19 +201,24 @@ func StartServer() {
 	admin := api.Group("/")
 	admin.Use(h.AuthMiddleware("mission_control"))
 	{
-		// Управление планетами
 		admin.POST("/planets", h.CreatePlanet)
 		admin.PUT("/planets/:id", h.UpdatePlanet)
 		admin.DELETE("/planets/:id", h.DeletePlanet)
 		admin.POST("/planets/:id/image", h.UploadPlanetImage)
 
-		// Завершение заявок
+		// Асинхронный расчет
 		admin.PUT("/worlds/:id/complete", h.CompleteWorld)
+		admin.POST("/worlds/:id/start-async", h.StartAsyncCalculation)
 
-		// Работа с связями M-M
-		admin.GET("/world-planets/:world_id/:planet_id", h.GetWorldPlanet)
-		admin.DELETE("/world-planets/:world_id/:planet_id", h.DeleteWorldPlanet)
-		admin.PUT("/world-planets/:world_id/:planet_id", h.UpdateWorldPlanet)
+		// Работа со связями M-M - используем :id вместо :world_id
+		admin.GET("/world-planets/:id/:planet_id", h.GetWorldPlanet)
+		admin.DELETE("/world-planets/:id/:planet_id", h.DeleteWorldPlanet)
+		admin.PUT("/world-planets/:id/:planet_id", h.UpdateWorldPlanet)
+
+		// Media - управление медиа файлами (только модератор)
+		admin.POST("/media/planet/:id", h.AddPlanetMedia)
+		admin.PUT("/media/:id", h.UpdateMedia)
+		admin.DELETE("/media/:id", h.DeleteMedia)
 
 		// Админка Redis
 		admin.GET("/admin/sessions", h.ShowAllSessions)
@@ -226,6 +232,7 @@ func StartServer() {
 	log.Println("📚 Swagger available at http://localhost:8080/swagger/index.html")
 	log.Println("🔐 Admin sessions at http://localhost:8080/api/admin/sessions")
 	log.Println("👤 Test users: user/1234 (astronaut), moderator/1234 (mission_control)")
+	log.Println("🔄 Callback endpoint: POST /api/async-callback/:world_id")
 
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("❌ Failed to start server: %v", err)

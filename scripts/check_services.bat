@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🔍 CHECKING DOCKER SERVICES"
+echo " CHECKING DOCKER SERVICES"
 echo "==========================="
 
 echo ""

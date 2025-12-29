@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"space_astrophysics/internal/app/models"
@@ -10,9 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"context"
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -25,6 +25,17 @@ type Handler struct {
 func NewHandler(r *repository.Repository) *Handler {
 	return &Handler{Repo: r}
 }
+
+const (
+	// Секретный токен для асинхронного сервиса (8+ байт)
+	AsyncServiceToken = "async_secret_token_12345678"
+
+	// URL асинхронного Django сервиса
+	AsyncServiceURL  = "http://localhost:8001/api/async/calculate/"
+	DjangoServiceURL = "http://localhost:8001/api/async/calculate/"
+	// Время ожидания для HTTP-запросов
+	HttpTimeout = 10 * time.Second
+)
 
 //=====================
 //Сессии
@@ -97,6 +108,7 @@ func (h *Handler) GetUserProfile(ctx *gin.Context) {
 //	@Summary		Список планет
 //	@Description	Получение всех планет, опционально фильтруя по названию
 //	@Tags			planets
+//	@Accept			json
 //	@Produce		json
 //	@Param			q	query		string	false	"Поиск по имени"
 //	@Success		200	{array}		models.Planet
@@ -272,9 +284,8 @@ func (h *Handler) UpdateWorld(ctx *gin.Context) {
 	// Пользователи не могут менять статус, кроме модераторов
 	if role != "mission_control" {
 		delete(update, "world_status")
-		delete(update, "total_distance")
-		delete(update, "average_angle")
-		delete(update, "completed_at")
+		delete(update, "total_cost")
+		delete(update, "completion_date")
 	}
 
 	if err := h.Repo.UpdateWorldFields(id, update); err != nil {
@@ -286,34 +297,39 @@ func (h *Handler) UpdateWorld(ctx *gin.Context) {
 }
 
 // PUT /api/worlds/:id/form - Оформление заявки
+// PUT /api/worlds/:id/form - Оформление заявки
 func (h *Handler) FormWorld(ctx *gin.Context) {
 	id, _ := strconv.Atoi(ctx.Param("id"))
+	fmt.Printf(" FormWorld: получаем заявку ID=%d\n", id)
 
 	// Проверяем, существует ли заявка
 	world, err := h.Repo.GetWorldByID(id)
 	if err != nil {
+		fmt.Printf("❌ FormWorld: заявка не найдена ID=%d, ошибка: %v\n", id, err)
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
 		return
 	}
 
-	// Проверка прав доступа
 	userID := ctx.GetInt("user_id")
 	if world.CreatorID != userID {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": "Недостаточно прав"})
 		return
 	}
 
-	// Проверяем, можно ли оформить (только черновики)
 	if world.WorldStatus != "draft" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Можно оформлять только черновики"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":          "Можно оформлять только черновики",
+			"current_status": world.WorldStatus,
+		})
 		return
 	}
 
-	// Проверяем, есть ли планеты в заявке
 	if len(world.Planets) == 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Добавьте планеты в заявку"})
 		return
 	}
+
+	fmt.Printf("✅ FormWorld: оформляем заявку ID=%d, планет: %d\n", id, len(world.Planets))
 
 	if err := h.Repo.FormWorld(id); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -345,7 +361,31 @@ func (h *Handler) ListWorldsFiltered(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, worlds)
+	response := make([]gin.H, 0)
+	for _, world := range worlds {
+		// Считаем планеты с заполненными angle/distance
+		calculatedCount := 0
+		for _, wp := range world.Planets {
+			if wp.Angle != 0 || wp.Distance != 0 {
+				calculatedCount++
+			}
+		}
+
+		response = append(response, gin.H{
+			"id":                       world.ID,
+			"theme":                    world.Theme,
+			"description":              world.Description,
+			"world_status":             world.WorldStatus,
+			"created_at":               world.CreatedAt,
+			"creator_id":               world.CreatorID,
+			"total_cost":               world.TotalCost,
+			"completion_date":          world.CompletionDate,
+			"calculated_planets_count": calculatedCount, // НОВОЕ ПОЛЕ
+			"planets_count":            len(world.Planets),
+		})
+	}
+
+	ctx.JSON(http.StatusOK, response)
 }
 
 // DeleteWorld - удаление заявки
@@ -417,7 +457,6 @@ func (h *Handler) CreateWorld(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, createdWorld)
 }
 
-// CompleteWorld - завершение заявки
 func (h *Handler) CompleteWorld(ctx *gin.Context) {
 	role := ctx.GetString("role")
 	if role != "mission_control" {
@@ -425,43 +464,107 @@ func (h *Handler) CompleteWorld(ctx *gin.Context) {
 		return
 	}
 
-	id, _ := strconv.Atoi(ctx.Param("id"))
-
-	// Получаем заявку для расчета
-	world, err := h.Repo.GetWorldByID(id)
+	worldID, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	fmt.Printf(" CompleteWorld: получаем заявку ID=%d\n", worldID)
+
+	// Получаем заявку
+	world, err := h.Repo.GetWorldByID(worldID)
+	if err != nil {
+		fmt.Printf("❌ CompleteWorld: заявка не найдена ID=%d, ошибка: %v\n", worldID, err)
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
 		return
 	}
 
-	// Рассчитываем суммарное расстояние и средний угол из данных WorldPlanet
-	totalDistance := 0.0
-	totalAngle := 0.0
-	planetCount := len(world.Planets)
+	fmt.Printf("📊 CompleteWorld: статус заявки ID=%d = %s\n", worldID, world.WorldStatus)
 
-	for _, wp := range world.Planets {
-		// Используем поля Distance и Angle из WorldPlanet
-		totalDistance += wp.Distance
-		totalAngle += wp.Angle
-	}
-
-	averageAngle := 0.0
-	if planetCount > 0 {
-		averageAngle = totalAngle / float64(planetCount)
-	}
-
-	// Вызываем репозиторий с обновленными параметрами
-	if err := h.Repo.CompleteWorld(id, totalDistance, averageAngle); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if world.WorldStatus != "formed" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":          "Расчет можно запускать только для заявок со статусом 'formed'",
+			"current_status": world.WorldStatus,
+			"allowed_status": "formed",
+		})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"message":        "Заявка завершена",
-		"total_distance": totalDistance,
-		"average_angle":  averageAngle,
-		"planet_count":   planetCount,
+	// Обновляем статус
+	if err := h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+		"world_status": "calculating",
+	}); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления статуса"})
+		return
+	}
+
+	fmt.Printf("🚀 CompleteWorld: запускаем расчет для world_id=%d\n", worldID)
+
+	// Запускаем асинхронный расчет
+	go func() {
+		if err := h.sendToDjangoAsyncService(worldID, world); err != nil {
+			fmt.Printf("❌ Ошибка отправки в Django для world_id=%d: %v\n", worldID, err)
+			h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+				"world_status": "failed",
+			})
+		}
+	}()
+
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"message":   "✅ Асинхронный расчет запущен в Django сервисе",
+		"world_id":  worldID,
+		"status":    "calculating",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"note":      "Результат появится через 5-10 секунд",
 	})
+}
+
+// sendToDjangoAsyncService отправляет задачу в Django асинхронный сервис
+// sendToDjangoAsyncService отправляет задачу в Django асинхронный сервис
+func (h *Handler) sendToDjangoAsyncService(worldID int, world models.World) error {
+	fmt.Printf("Отправляем world_id=%d в Django асинхронный сервис\n", worldID)
+
+	// Собираем ID планет для расчета
+	planetIDs := make([]int, 0)
+	for _, wp := range world.Planets {
+		planetIDs = append(planetIDs, wp.PlanetID)
+	}
+
+	// Данные для отправки в Django
+	data := map[string]interface{}{
+		"world_id":   worldID,
+		"token":      AsyncServiceToken,
+		"planet_ids": planetIDs,
+		"created_at": world.CreatedAt.Format(time.RFC3339),
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("ошибка сериализации JSON: %v", err)
+	}
+
+	// Отправляем в Django сервис
+	url := DjangoServiceURL
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("ошибка создания запроса: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки запроса: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("сервер Django вернул ошибку: %d", resp.StatusCode)
+	}
+
+	fmt.Printf("✅ Задача world_id=%d отправлена в Django\n", worldID)
+	return nil
 }
 
 // =========================================================
@@ -470,7 +573,7 @@ func (h *Handler) CompleteWorld(ctx *gin.Context) {
 
 // PUT /api/worlds/:world_id/planet/:planet_id
 func (h *Handler) UpdateWorldPlanet(ctx *gin.Context) {
-	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
+	worldID, _ := strconv.Atoi(ctx.Param("id"))
 	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
 	var payload struct {
 		Angle    float64 `json:"angle"`
@@ -490,7 +593,7 @@ func (h *Handler) UpdateWorldPlanet(ctx *gin.Context) {
 
 // DELETE /api/worlds/:world_id/planet/:planet_id
 func (h *Handler) DeleteWorldPlanet(ctx *gin.Context) {
-	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
+	worldID, _ := strconv.Atoi(ctx.Param("id"))
 	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
 	if err := h.Repo.DeleteWorldPlanet(worldID, planetID); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -725,7 +828,7 @@ func (h *Handler) UploadPlanetImage(ctx *gin.Context) {
 // @Router         /api/world-planets/{world_id}/{planet_id} [get]
 // @Security       BearerAuth
 func (h *Handler) GetWorldPlanet(ctx *gin.Context) {
-	worldID, _ := strconv.Atoi(ctx.Param("world_id"))
+	worldID, _ := strconv.Atoi(ctx.Param("id"))
 	planetID, _ := strconv.Atoi(ctx.Param("planet_id"))
 	wp, err := h.Repo.GetWorldPlanet(worldID, planetID)
 	if err != nil {
@@ -1101,5 +1204,350 @@ func (h *Handler) CalculateOrbitalData(ctx *gin.Context) {
 		"total_distance":   totalDistance,
 		"average_angle":    averageAngle,
 		"planets":          results,
+	})
+}
+
+// =========================================================
+// 🚀 АСИНХРОННЫЙ РАСЧЕТ И КОЛБЭК
+// =========================================================
+// ReceiveCalculationResult - получение результатов расчета от Django сервиса
+func (h *Handler) CompleteWorldCallback(ctx *gin.Context) {
+	worldID, err := strconv.Atoi(ctx.Param("world_id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	var request struct {
+		TotalDistance float64                `json:"total_distance"`
+		AverageAngle  float64                `json:"average_angle"`
+		Status        string                 `json:"status"`
+		Token         string                 `json:"token"`
+		Details       map[string]interface{} `json:"details"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный JSON: " + err.Error()})
+		return
+	}
+
+	fmt.Printf("🔑 DEBUG: Полученный токен: %s\n", request.Token)
+	fmt.Printf("🔑 DEBUG: Ожидаемый токен: %s\n", AsyncServiceToken)
+	fmt.Printf("🔑 DEBUG: Токены совпадают? %v\n", request.Token == AsyncServiceToken)
+	fmt.Printf("🔑 DEBUG: Длина полученного токена: %d\n", len(request.Token))
+	fmt.Printf("🔑 DEBUG: Длина ожидаемого токена: %d\n", len(AsyncServiceToken))
+
+	// Проверяем токен аутентификации
+	if request.Token != AsyncServiceToken {
+		fmt.Printf("❌ Токены не совпадают!\n")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный токен аутентификации"})
+		return
+	}
+
+	// Обновляем заявку с результатами расчета
+	updateData := map[string]interface{}{
+		"world_status":    request.Status,
+		"total_cost":      request.TotalDistance,
+		"completion_date": time.Now(),
+	}
+
+	if request.Status == "completed" && request.Details != nil {
+		// Можно сохранить детальные результаты из Django
+		if planets, ok := request.Details["planets"].([]interface{}); ok {
+			// Обновляем данные для каждой планеты
+			for _, planetData := range planets {
+				if planet, ok := planetData.(map[string]interface{}); ok {
+					planetID, _ := planet["planet_id"].(float64)
+					distance, _ := planet["distance"].(float64)
+					angle, _ := planet["angle"].(float64)
+
+					// Обновляем связь WorldPlanet
+					h.Repo.UpdateWorldPlanetFields(
+						worldID,
+						int(planetID),
+						angle,
+						distance,
+						"Рассчитано Django сервисом",
+					)
+				}
+			}
+		}
+	}
+
+	if err := h.Repo.UpdateWorldFields(worldID, updateData); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления заявки: " + err.Error()})
+		return
+	}
+
+	// Логируем успешное получение
+	fmt.Printf("✅ Результаты расчета получены от Django для world_id=%d\n", worldID)
+	fmt.Printf("   Статус: %s, Общее расстояние: %.2f, Средний угол: %.2f\n",
+		request.Status, request.TotalDistance, request.AverageAngle)
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message":        "Результаты расчета успешно сохранены",
+		"world_id":       worldID,
+		"total_distance": request.TotalDistance,
+		"average_angle":  request.AverageAngle,
+		"status":         request.Status,
+		"timestamp":      time.Now().Format(time.RFC3339),
+	})
+}
+
+// performAsyncCalculation выполняет расчет и отправляет результаты
+func (h *Handler) performAsyncCalculation(worldID int, world models.World) {
+	fmt.Printf("🚀 Запущен асинхронный расчет для world_id=%d\n", worldID)
+
+	// Имитируем длительный расчет
+	time.Sleep(3 * time.Second)
+
+	// Рассчитываем данные
+	totalDistance := 0.0
+	totalAngle := 0.0
+	planetCount := len(world.Planets)
+
+	for _, wp := range world.Planets {
+		// Используем текущую дату для расчета
+		distance, angle := CalculatePlanetPosition(wp.Planet.Name, time.Now())
+
+		totalDistance += distance
+		totalAngle += angle
+
+		// Обновляем связь WorldPlanet (это самое важное - данные в M-M таблице)
+		h.Repo.UpdateWorldPlanetFields(worldID, wp.PlanetID, angle, distance, "Рассчитано асинхронно")
+	}
+
+	averageAngle := 0.0
+	if planetCount > 0 {
+		averageAngle = totalAngle / float64(planetCount)
+	}
+
+	// Подготавливаем результаты
+	results := map[string]interface{}{
+		"total_distance": totalDistance,
+		"average_angle":  averageAngle,
+		"status":         "completed",
+	}
+
+	// Отправляем результаты на callback endpoint
+	err := h.sendCalculationResult(worldID, results)
+	if err != nil {
+		fmt.Printf("❌ Ошибка отправки результатов для world_id=%d: %v\n", worldID, err)
+
+		// Если не удалось отправить, сохраняем локально
+		h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+			"total_cost":      totalDistance,
+			"world_status":    "completed",
+			"completion_date": time.Now(),
+		})
+		fmt.Printf("✅ Расчет завершен для world_id=%d (сохранено локально)\n", worldID)
+	} else {
+		fmt.Printf("✅ Расчет завершен для world_id=%d\n", worldID)
+	}
+}
+
+// sendCalculationResult отправляет результаты расчета на endpoint
+func (h *Handler) sendCalculationResult(worldID int, results map[string]interface{}) error {
+	jsonData, err := json.Marshal(results)
+	if err != nil {
+		return err
+	}
+
+	// URL для отправки результатов (ваш endpoint)
+	url := fmt.Sprintf("http://localhost:8080/api/worlds/%d/calculation-result", worldID)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ошибка отправки: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// =========================================================
+// 🚀 ЗАПУСК АСИНХРОННОГО РАСЧЕТА
+// =========================================================
+
+// @Summary        Запуск асинхронного расчета
+// @Description    Запускает асинхронный расчет для заявки (только модератор)
+// @Tags           Worlds
+// @Produce        json
+// @Param          id  path    int true    "ID заявки"
+// @Success        202 {object} map[string]interface{}
+// @Router         /api/worlds/{id}/calculate-async [post]
+// @Security       BearerAuth
+func (h *Handler) CalculateAsync(ctx *gin.Context) {
+	worldID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	// Проверяем права (только модератор)
+	role := ctx.GetString("role")
+	if role != "mission_control" {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Только модератор может запускать расчет"})
+		return
+	}
+
+	// Проверяем существование заявки
+	world, err := h.Repo.GetWorldByID(worldID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	// Проверяем статус заявки
+	if world.WorldStatus != "formed" && world.WorldStatus != "pending" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":          "Расчет можно запускать только для заявок со статусом 'formed' или 'pending'",
+			"current_status": world.WorldStatus,
+		})
+		return
+	}
+
+	// Обновляем статус на "calculating"
+	if err := h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+		"world_status": "calculating",
+	}); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления статуса"})
+		return
+	}
+
+	// Запускаем асинхронный расчет в горутине
+	go h.performAsyncCalculation(worldID, world)
+
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"message":   "Асинхронный расчет запущен",
+		"world_id":  worldID,
+		"status":    "calculating",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// @Summary        Получить статус расчета
+// @Description    Получает текущий статус расчета заявки
+// @Tags           Worlds
+// @Produce        json
+// @Param          id  path    int true    "ID заявки"
+// @Success        200 {object} map[string]interface{}
+// @Router         /api/worlds/{id}/calculation-status [get]
+func (h *Handler) GetCalculationStatus(ctx *gin.Context) {
+	worldID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	world, err := h.Repo.GetWorldByID(worldID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	response := gin.H{
+		"world_id":       worldID,
+		"current_status": world.WorldStatus,
+		"created_at":     world.CreatedAt.Format(time.RFC3339),
+		"theme":          world.Theme,
+		"description":    world.Description,
+		"creator_id":     world.CreatorID,
+	}
+
+	// Добавляем информацию о планетах
+	if len(world.Planets) > 0 {
+		planetsInfo := make([]gin.H, 0, len(world.Planets))
+		for _, wp := range world.Planets {
+			planetsInfo = append(planetsInfo, gin.H{
+				"planet_id": wp.PlanetID,
+				"name":      wp.Planet.Name,
+				"angle":     wp.Angle,
+				"distance":  wp.Distance,
+				"comment":   wp.Comment,
+			})
+		}
+		response["planets"] = planetsInfo
+		response["planet_count"] = len(world.Planets)
+	}
+
+	// Добавляем completion_date если он есть
+	if world.CompletionDate != nil {
+		response["completion_date"] = world.CompletionDate.Format(time.RFC3339)
+	}
+
+	// Добавляем total_cost если он есть
+	if world.TotalCost != nil {
+		response["total_cost"] = *world.TotalCost
+	}
+
+	ctx.JSON(http.StatusOK, response)
+}
+
+// StartAsyncCalculation - альтернативный запуск асинхронного расчета
+func (h *Handler) StartAsyncCalculation(ctx *gin.Context) {
+	worldID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID заявки"})
+		return
+	}
+
+	role := ctx.GetString("role")
+	if role != "mission_control" {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещён"})
+		return
+	}
+
+	// Получаем заявку
+	world, err := h.Repo.GetWorldByID(worldID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Заявка не найдена"})
+		return
+	}
+
+	if world.WorldStatus != "formed" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":          "Расчет можно запускать только для заявок со статусом 'formed'",
+			"current_status": world.WorldStatus,
+		})
+		return
+	}
+
+	// Обновляем статус
+	if err := h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+		"world_status": "calculating",
+	}); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления статуса"})
+		return
+	}
+
+	// Отправляем в Django сервис
+	go func() {
+		if err := h.sendToDjangoAsyncService(worldID, world); err != nil {
+			fmt.Printf("❌ Ошибка отправки в Django для world_id=%d: %v\n", worldID, err)
+			h.Repo.UpdateWorldFields(worldID, map[string]interface{}{
+				"world_status": "failed",
+			})
+		}
+	}()
+
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"message":   "✅ Асинхронный расчет запущен через отдельный endpoint",
+		"world_id":  worldID,
+		"status":    "calculating",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"note":      "Результат появится через 5-10 секунд",
 	})
 }

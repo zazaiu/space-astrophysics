@@ -14,7 +14,7 @@ func main() {
 	dsn := "host=localhost port=5433 user=astrouser password=1234 dbname=astrodb sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("❌ Ошибка подключения к БД: %v", err)
+		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
 
 	// Создаем репозиторий
@@ -36,18 +36,18 @@ func main() {
 
 	// Пытаемся создать пользователей
 	if err := repo.CreateUser(user); err != nil {
-		log.Printf("⚠️ User already exists or error: %v", err)
+		log.Printf("User already exists or error: %v", err)
 	} else {
-		log.Printf("✅ Created user: %s (role: %s)", user.Username, user.Role)
+		log.Printf("Created user: %s (role: %s)", user.Username, user.Role)
 	}
 
 	if err := repo.CreateUser(moderator); err != nil {
-		log.Printf("⚠️ Moderator already exists or error: %v", err)
+		log.Printf("Moderator already exists or error: %v", err)
 	} else {
-		log.Printf("✅ Created moderator: %s (role: %s)", moderator.Username, moderator.Role)
+		log.Printf("Created moderator: %s (role: %s)", moderator.Username, moderator.Role)
 	}
 
-	log.Println("🎉 Test users initialization completed!")
-	log.Println("👤 User: user / 1234")
-	log.Println("👑 Moderator: moderator / 1234")
+	log.Println("Test users initialization completed!")
+	log.Println("User: user / 1234")
+	log.Println("Moderator: moderator / 1234")
 }
