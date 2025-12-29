@@ -1,0 +1,76 @@
+.auth-frame {
+  max-width: 400px;
+  margin: 50px auto;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+  background: linear-gradient(145deg, #1e1e1e, #2a2a2a);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.auth-frame h2 {
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 1.8rem;
+}
+
+.auth-frame input,
+.auth-frame select {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background-color: #0f0f1f;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.auth-frame input::placeholder {
+  color: #888;
+}
+
+.auth-frame select {
+  cursor: pointer;
+}
+
+.auth-frame button {
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background-color: #311b77;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.auth-frame button:hover {
+  background-color: #8a2be2;
+}
+
+.auth-frame button:disabled {
+  background-color: #555;
+  cursor: not-allowed;
+}
+
+.auth-frame .error {
+  color: #ff4d4f;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+/* 📱 Мобильные: 320px-768px */
+@media (max-width: 768px) {
+  .auth-frame {
+    margin: 30px 10px;
+    padding: 20px;
+  }
+
+  .auth-frame input,
+  .auth-frame select,
+  .auth-frame button {
+    font-size: 0.95rem;
+  }
+}

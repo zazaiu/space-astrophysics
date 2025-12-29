@@ -1,30 +1,36 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Provider } from 'react-redux';
-import { Navbar } from './components/Navbar';
+// src/App.tsx
+import { HashRouter, Routes, Route } from 'react-router-dom';
+
+import Login from './pages/Login';
+import Register from './pages/Register';
 import { PlanetsHome } from './pages/PlanetsHome';
-import { Breadcrumbs } from './components/Breadcrumbs';
-import { PlanetList } from './pages/PlanetList';
+import PlanetList from './pages/PlanetList';
 import { PlanetDetail } from './pages/PlanetDetail';
-import { WorldDetail } from './pages/WorldDetail';
-import './App.css';
-import { store } from './store/store';
+import { WorldEdit } from './pages/WorldEdit';
+import { Breadcrumbs } from './components/Breadcrumbs';
 
 function App() {
   return (
-    <Provider store={store}>
-      <BrowserRouter>
-        <div className="app-container">
-          <Navbar />
-          <Breadcrumbs />
-          <Routes>
-            <Route path="/" element={<PlanetsHome />} />
-            <Route path="/planets" element={<PlanetList />} />
-            <Route path="/planets/:id" element={<PlanetDetail />} />
-            <Route path="/world/:id" element={<WorldDetail />} />
-          </Routes>
-        </div>
-      </BrowserRouter>
-    </Provider>
+    <HashRouter basename="/space-astrophysics">
+      {/* Хлебные крошки */}
+      <Breadcrumbs />
+
+      <Routes>
+        {/* Главная */}
+        <Route path="/" element={<PlanetsHome />} />
+
+        {/* Авторизация */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        {/* Планеты */}
+        <Route path="/planets" element={<PlanetList />} />
+        <Route path="/planets/:id" element={<PlanetDetail />} />
+
+        {/* Редактирование мира */}
+        <Route path="/world/:id" element={<WorldEdit />} />
+      </Routes>
+    </HashRouter>
   );
 }
 

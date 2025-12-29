@@ -1,0 +1,57 @@
+[
+  {
+    "ID": 1,
+    "Name": "Меркурий",
+    "Description": "Самая маленькая планета Солнечной системы и ближайшая к Солнцу.",
+    "ImageURL": "/space-astrophysics/images/mercury.png",
+    "Status": "active",
+    "A": 0.387,
+    "E": 0.2056,
+    "Period": 88,
+    "T0": 2451545.0
+  },
+  {
+    "ID": 2,
+    "Name": "Венера",
+    "Description": "Вторая планета от Солнца, самая горячая планета системы.",
+    "ImageURL": "/space-astrophysics/images/venus.png",
+    "Status": "active",
+    "A": 0.723,
+    "E": 0.0068,
+    "Period": 225,
+    "T0": 2451545.0
+  },
+  {
+    "ID": 3,
+    "Name": "Земля",
+    "Description": "Третья планета от Солнца, единственная известная планета с жизнью.",
+    "ImageURL": "/space-astrophysics/images/earth.png",
+    "Status": "active",
+    "A": 1.0,
+    "E": 0.0167,
+    "Period": 365.25,
+    "T0": 2451545.0
+  },
+  {
+    "ID": 4,
+    "Name": "Марс",
+    "Description": "Четвертая планета от Солнца, известная как Красная планета.",
+    "ImageURL": "/space-astrophysics/images/mars.png",
+    "Status": "active",
+    "A": 1.524,
+    "E": 0.0934,
+    "Period": 687,
+    "T0": 2451545.0
+  },
+  {
+    "ID": 5,
+    "Name": "Юпитер",
+    "Description": "Крупнейшая планета Солнечной системы, газовый гигант.",
+    "ImageURL": "/space-astrophysics/images/jupiter.png",
+    "Status": "active",
+    "A": 5.203,
+    "E": 0.0484,
+    "Period": 4332.59,
+    "T0": 2451545.0
+  }
+]

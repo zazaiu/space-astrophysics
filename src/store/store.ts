@@ -1,13 +1,15 @@
-// src/store/store.ts
-import { configureStore } from '@reduxjs/toolkit'
-import filtersReducer from './filtersSlice'
+import { configureStore } from '@reduxjs/toolkit';
+import authReducer from './authSlice';
+import worldsReducer from './worldsSlice';
+import planetsReducer from './planetsSlice';
 
 export const store = configureStore({
   reducer: {
-    filters: filtersReducer,
+    auth: authReducer,
+    worlds: worldsReducer,
+    planets: planetsReducer,
   },
-  devTools: import.meta.env.MODE !== 'production', // Исправлено для Vite
-})
+});
 
-export type RootState = ReturnType<typeof store.getState>
-export type AppDispatch = typeof store.dispatch
+export type RootState = ReturnType<typeof store.getState>;
+export type AppDispatch = typeof store.dispatch;

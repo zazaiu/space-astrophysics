@@ -197,3 +197,28 @@
     padding: 50px 40px;
   }
 }
+.add-btn {
+  padding: 14px 28px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 200px;
+  text-align: center;
+  border: none;
+  color: #fff;
+  background: linear-gradient(135deg, #6a0dad, #311B77);
+  box-shadow: 0 4px 12px rgba(106, 13, 173, 0.4);
+  transition: all 0.3s ease;
+}
+
+.add-btn:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 8px 20px rgba(138, 43, 226, 0.55);
+  background: linear-gradient(135deg, #7a26e6, #4a2e9e);
+}
+
+.add-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(138, 43, 226, 0.4);
+}

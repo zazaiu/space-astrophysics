@@ -1,246 +1,65 @@
-// src/pages/WorldDetail.tsx
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import type { World, PlanetPosition } from '../types/planets';
+import type { Planet } from '../types/planets';
+import type { World } from '../services/api/generated/models/World';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { fetchWorlds, completeWorld } from '../store/worldsSlice';
 
 export const WorldDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const dispatch = useAppDispatch();
+  const { worlds, isLoading } = useAppSelector(state => state.worlds);
+  const { user } = useAppSelector(state => state.auth);
   const [world, setWorld] = useState<World | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    const fetchWorld = async () => {
-      try {
-        const response = await fetch(`/api/worlds/${id}`);
-        if (response.ok) {
-          const worldData = await response.json();
-          setWorld(worldData);
-        } else {
-          throw new Error('World not found');
-        }
-      } catch (error) {
-        // Mock данные для демонстрации
-        const mockWorld: World = {
-          id: parseInt(id || '1'),
-          date: new Date().toISOString().split('T')[0],
-          results: [
-            {
-              planet: {
-                id: 1,
-                name: "Меркурий",
-                description: "Ближайшая к Солнцу планета",
-                imageURL: "/images/mercury.jpg",
-                perihelion: 0.307,
-                aphelion: 0.467
-              },
-              r_au: 0.387,
-              nu_deg: 45.5
-            },
-            {
-              planet: {
-                id: 2,
-                name: "Венера", 
-                description: "Вторая планета от Солнца",
-                imageURL: "/images/venus.jpg",
-                perihelion: 0.718,
-                aphelion: 0.728
-              },
-              r_au: 0.723,
-              nu_deg: 120.3
-            }
-          ]
-        };
-        setWorld(mockWorld);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (worlds.length === 0) dispatch(fetchWorlds());
+  }, [dispatch, worlds.length]);
 
-    fetchWorld();
-  }, [id]);
-
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setDate(e.target.value);
-    // Здесь можно добавить запрос к API для пересчета позиций на новую дату
-  };
-
-  const handleDeleteWorld = async () => {
-    if (window.confirm('Вы уверены, что хотите удалить заявку?')) {
-      try {
-        const response = await fetch(`/api/worlds/${id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (response.ok) {
-          alert('Заявка удалена');
-          window.location.href = '/planets';
-        }
-      } catch (error) {
-        console.log('Mock: Заявка удалена (бэкенд недоступен)');
-        window.location.href = '/planets';
-      }
+  useEffect(() => {
+    if (id && worlds.length > 0) {
+      const found = worlds.find(w => w.id === Number(id));
+      setWorld(found ?? null);
     }
-  };
+  }, [id, worlds]);
 
-  if (loading) {
-    return <div className="loading">Загрузка заявки...</div>;
-  }
+  if (isLoading) return <div style={{ color: '#fff', padding: '40px', textAlign: 'center' }}>Загрузка...</div>;
+  if (!world) return <div style={{ color: '#fff', padding: '20px' }}>Заявка не найдена</div>;
 
-  if (!world) {
-    return <div className="loading">Заявка не найдена</div>;
-  }
+  const planets = world.planets ?? [];
+  const worldId = world.id; // гарантия типа number
+
+  const canEdit = user?.role === 'astronaut' && world.creator_id === user.id && world.world_status === 'draft';
+  const canComplete = user?.role === 'mission_control' && world.world_status === 'pending';
 
   return (
-    <div style={{ 
-      margin: 0, 
-      padding: 0, 
-      backgroundColor: '#000', 
-      color: '#fff', 
-      fontFamily: "'Space Grotesk', sans-serif",
-      minHeight: '100vh'
-    }}>
-      <div style={{ 
-        width: '1200px', 
-        margin: '40px auto',
-        padding: '20px'
-      }}>
-        <div style={{ 
-          textAlign: 'center', 
-          fontSize: '32px', 
-          marginBottom: '20px' 
-        }}>
-          space&astrophysics. Расчет положения планет
-        </div>
-        
-        <div style={{ 
-          textAlign: 'center', 
-          fontSize: '40px', 
-          marginBottom: '30px' 
-        }}>
-          Заявка №{world.id} — 
-          <form style={{ display: 'inline' }}>
-            <input 
-              type="date" 
-              name="date" 
-              value={date}
-              onChange={handleDateChange}
-              style={{
-                marginLeft: '10px',
-                padding: '5px',
-                borderRadius: '4px',
-                border: '1px solid #311b77',
-                backgroundColor: 'transparent',
-                color: '#fff',
-                fontSize: '20px'
-              }}
-            />
-          </form>
-        </div>
+    <div style={{ maxWidth: '800px', margin: '50px auto', padding: '30px', background: 'rgba(255,255,255,0.08)', borderRadius: '12px', color: '#fff' }}>
+      <h2>Заявка #{worldId}</h2>
+      <p>Статус: {world.world_status}</p>
+      <p>Создатель ID: {world.creator_id}</p>
+      <p>Планет: {planets.length}</p>
 
-        {world.results.map((result: PlanetPosition, index: number) => (
-          <div key={index} style={{
-            display: 'flex',
-            alignItems: 'center',
-            background: 'rgba(255,255,255,0.05)',
-            borderRadius: '12px',
-            padding: '15px',
-            marginBottom: '20px'
-          }}>
-            <img 
-              src={result.planet.imageURL || '/images/default-planet.jpg'} 
-              alt={result.planet.name}
-              style={{ 
-                width: '80px', 
-                height: '80px', 
-                marginRight: '20px', 
-                borderRadius: '50%' 
-              }}
-              onError={(e) => {
-                e.currentTarget.src = '/images/default-planet.jpg';
-              }}
-            />
-            
-            <div style={{ 
-              flex: 1, 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center' 
-            }}>
-              <div style={{ margin: '0 10px' }}>
-                <strong>{result.planet.name}</strong><br />
-                <small style={{ color: '#aaa' }}>{result.planet.description}</small>
-              </div>
-              
-              <div style={{ margin: '0 10px' }}>
-                Расстояние: {result.r_au.toFixed(3)} a.e.
-              </div>
-              
-              <div style={{ margin: '0 10px' }}>
-                Угол: {result.nu_deg.toFixed(2)}°
-              </div>
-              
-              <div style={{ margin: '0 10px' }}>
-                <input 
-                  type="text" 
-                  name={`comment_${result.planet.id}`}
-                  placeholder="Комментарий"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #ccc',
-                    width: '200px',
-                    backgroundColor: 'transparent',
-                    color: '#fff'
-                  }}
-                />
-              </div>
-            </div>
-          </div>
+      <h3>Планеты</h3>
+      <ul>
+        {planets.map(planet => (
+          <li key={planet.id}>
+            {planet.name}
+            {'status' in planet && planet.status ? ` — ${planet.status}` : ''}
+          </li>
         ))}
+      </ul>
 
-        <div style={{
-          textAlign: 'center',
-          marginTop: '30px',
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '30px'
-        }}>
-          <button 
-            onClick={handleDeleteWorld}
-            style={{
-              padding: '12px 24px',
-              fontSize: '20px',
-              borderRadius: '8px',
-              border: '2px solid #FF4C4C',
-              color: '#fff',
-              cursor: 'pointer',
-              backgroundColor: '#A21919'
-            }}
+      <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+        <Link to="/worlds" style={{ color: '#fff', textDecoration: 'underline' }}>Назад</Link>
+        {canEdit && <Link to={`/worlds/${worldId}/edit`} style={{ color: '#4CAF50', textDecoration: 'underline' }}>Редактировать</Link>}
+        {canComplete && worldId !== undefined && (
+          <button
+            onClick={() => dispatch(completeWorld({ id: worldId }))}
+            style={{ color: '#4CAF50' }}
           >
-            Удалить заявку
+            Завершить заявку
           </button>
-          
-          <Link 
-            to="/planets"
-            style={{
-              padding: '12px 24px',
-              fontSize: '20px',
-              borderRadius: '8px',
-              border: '2px solid #A2A2A2',
-              color: '#fff',
-              textDecoration: 'none',
-              cursor: 'pointer',
-              backgroundColor: '#2B2B2B',
-              display: 'inline-block'
-            }}
-          >
-             К списку планет
-          </Link>
-        </div>
+        )}
       </div>
     </div>
   );
